@@ -1,4 +1,4 @@
-<!doctype html> 
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -243,6 +243,27 @@ code{background:color-mix(in srgb,var(--ink) 8%,transparent);padding:1px 5px;bor
 .toast button{color:var(--amber);font-weight:700;text-decoration:underline;text-underline-offset:3px}
 .banner{background:#F4E4B0;color:#5c4600;padding:9px 40px;font-size:13px}
 
+/* ---------- daily routine ---------- */
+.rt{display:grid;grid-template-columns:140px minmax(0,1fr) auto;column-gap:18px;align-items:start;padding:14px 12px;margin:0 -12px;border-top:1px solid var(--line);border-left:3px solid transparent}
+.rt:first-child{border-top:0}
+.rt .rtm{font-weight:700;color:var(--ink2);padding-top:2px;font-size:14px}
+.rt .rtt{font-weight:700;font-size:16px}
+.rt .rtn{color:var(--ink2);font-size:13.5px;margin-top:2px;max-width:60ch}
+.rt.now{border-left-color:var(--marker);background:color-mix(in srgb,var(--marker) 7%,transparent)}
+.rt.leave .rtt{color:var(--marker)}
+.rt.done .rtt{font-weight:400;color:var(--ink3);text-decoration:line-through;text-decoration-thickness:1px}
+.rt.done .rtn{opacity:.6}
+.rt.done .check{background:var(--ink);border-color:var(--ink)}
+.rtact{display:flex;gap:8px;align-items:center}
+.rtnow{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--marker);margin-left:10px}
+.top3{display:grid;gap:10px}
+.t3{display:grid;grid-template-columns:34px minmax(0,1fr);gap:14px;align-items:center}
+.t3 b{font:700 30px/1 var(--display);color:var(--ink3);text-align:center}
+.houset{border-left:3px solid var(--marker);padding:1px 0 1px 18px}
+@media (max-width:640px){
+  .rt{grid-template-columns:minmax(0,1fr) auto;row-gap:2px}
+  .rt .rtm{grid-column:1/-1}
+}
 /* ---------- small screens ---------- */
 @media (max-width:980px){
   .app{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
@@ -348,6 +369,23 @@ const str = (x, d='') => typeof x === 'string' ? x : (x == null ? d : String(x))
 const isDay = s => /^\d{4}-\d{2}-\d{2}$/.test(s);
 const stamp = ms => { const d = new Date(ms); return isNaN(d) ? 'earlier' : d.toLocaleString([], {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}); };
 
+const toMin = t => { const [h,m] = String(t).split(':').map(Number); return h*60 + m; };
+const normTime = t => { const [h,m] = String(t).split(':'); return `${pad(+h)}:${m}`; };
+function sanitizeRoutine(r){
+  if(!Array.isArray(r)) return null;
+  const seen = new Set(), ok = x => /^([01]?\d|2[0-3]):[0-5]\d$/.test(str(x));
+  return r.filter(isObj).slice(0, 40).map(b => {
+    let id = str(b.id).slice(0, 40); if(!id || seen.has(id)) id = uid(); seen.add(id);
+    const s = ok(b.s) ? normTime(b.s) : '09:00'; let e = ok(b.e) ? normTime(b.e) : s;
+    if(toMin(e) < toMin(s)) e = s;
+    return {id, s, e, t: str(b.t).slice(0,120) || 'Block', n: str(b.n).slice(0,500), kind: b.kind === 'leave' ? 'leave' : ''};
+  });
+}
+function sanitizeDayMap(m, max){
+  const out = {}; if(!isObj(m)) return out;
+  Object.keys(m).filter(isDay).sort().slice(-60).forEach(k => { if(Array.isArray(m[k])) out[k] = m[k].slice(0, max).map(x => str(x).slice(0,200)); });
+  return out;
+}
 /* Turn anything into a valid state, or throw a readable reason. Never trusts its input. */
 function sanitizeState(o, opt={}){
   if(!isObj(o)) throw new Error('not a Command Center data file');
@@ -377,7 +415,8 @@ function sanitizeState(o, opt={}){
     profile: { name: str(pr.name, 'Noka').slice(0,60) || 'Noka', theme: ['system','light','dark'].includes(pr.theme) ? pr.theme : 'system' },
     tasks, projects,
     chat: opt.keepChat && Array.isArray(o.chat) ? o.chat.filter(m => isObj(m) && (m.r === 'me' || m.r === 'ai') && typeof m.h === 'string').slice(-40) : [],
-    hasSample: o.hasSample === true };
+    hasSample: o.hasSample === true,
+    routine: sanitizeRoutine(o.routine), routineDone: sanitizeDayMap(o.routineDone, 60), top3: sanitizeDayMap(o.top3, 3) };
 }
 
 /* Rolling snapshots: bak0 is the newest. Never throws. */
@@ -593,7 +632,7 @@ function projectStats(p){
 
 /* ================= views ================= */
 const NAV = [
-  ['dashboard','◧','Dashboard'],['today','☀︎','Today'],['calendar','▦','Calendar',2],['tasks','☑︎','Tasks'],
+  ['dashboard','◧','Dashboard'],['today','☀︎','Today'],['routine','◷','Routine'],['calendar','▦','Calendar',2],['tasks','☑︎','Tasks'],
   ['projects','◈','Projects'],['clients','☺︎','Clients',2],['money','$','Money',3],['habits','↻','Habits',2],
   ['ai','✦','AI Assistant'],['reviews','◔','Reviews',3],['settings','⚙︎','Settings']
 ];
@@ -612,6 +651,11 @@ function renderBanner(){
   if(memoryOnly) b.push(`<div class="banner">Browser storage is blocked here, so changes will be lost when you close this tab. Open the file directly from your computer to enable saving.</div>`);
   if(storageFull) b.push(`<div class="banner">Your browser's storage is full, so your latest changes are NOT being saved. Export a backup now (Settings), then free up space.</div>`);
   if(notice) b.push(`<div class="banner">${esc(notice)} <button class="btn" data-act="dismiss-notice" style="margin-left:8px">OK</button></div>`);
+  if(!recovery){
+    const d = now(), dow = d.getDay(), lv = (dow >= 1 && dow <= 5) ? getRoutine().find(x => x.kind === 'leave') : null;
+    if(lv){ const cur = d.getHours()*60 + d.getMinutes(), ls = toMin(lv.s);
+      if(cur >= ls - 30 && cur < toMin(lv.e)) b.push(`<div class="banner">${cur < ls ? 'Heads up: ' + esc(lv.t) + ' at ' + fmtTime(lv.s) + '.' : 'Time to go: ' + esc(lv.t) + '.'}</div>`); }
+  }
   $('#banner').innerHTML = b.join('');
 }
 function renderRecovery(){
@@ -788,8 +832,92 @@ function vSettings(){
   </div></div>`;
 }
 
+
+/* ================= daily routine ================= */
+const DEFAULT_ROUTINE = [
+  {id:'r_morning', s:'07:00', e:'08:30', t:'Morning basics', n:'Get you and your son ready, breakfast, school drop-off if needed. Start a dishwasher load or wash the sink.', kind:''},
+  {id:'r_reset', s:'08:30', e:'09:00', t:'Reset: tidy one zone, pick your top 3', n:'15 minutes with a timer on one zone of the house, then choose the 3 things that would make today a win.', kind:''},
+  {id:'r_work1', s:'09:00', e:'11:30', t:'Deep work block', n:'Money and growth: DoorDash, Noka Photography, or the short-form video service. One thing per block. Phone on do-not-disturb.', kind:''},
+  {id:'r_break', s:'11:30', e:'12:00', t:'Break and food', n:'Eat, move around, step away from screens.', kind:''},
+  {id:'r_work2', s:'12:00', e:'13:30', t:'Second work block', n:'Lighter work: messages, invoices and expenses, editing, posts, leads.', kind:''},
+  {id:'r_wrap', s:'13:30', e:'14:00', t:'Wrap up and house', n:'Run or unload the dishwasher, wipe the kitchen, start a load of laundry. Write down where you stopped.', kind:''},
+  {id:'r_ready', s:'14:00', e:'14:15', t:'Get ready to leave', n:'Shoes, keys, phone, water.', kind:''},
+  {id:'r_leave', s:'14:15', e:'15:00', t:'Out the door for school pickup', n:'Leave by 2:15. Pickup at 2:30, then home.', kind:'leave'},
+  {id:'r_family', s:'15:00', e:'17:00', t:'Family time', n:'Snack, homework, no work. Keep phone time to 15 minutes.', kind:''},
+  {id:'r_dinner', s:'17:00', e:'18:30', t:'Dinner and dishes', n:'Cook, eat, then dishes right away so the morning starts clean.', kind:''},
+  {id:'r_wind', s:'18:30', e:'20:00', t:'Wind down with your son', n:'Bath, reading, bedtime routine.', kind:''},
+  {id:'r_you', s:'20:00', e:'21:00', t:'Your time (optional)', n:'Pick one: Claude setup, plan tomorrow, or rest. Rest counts.', kind:''}
+];
+const HOUSE = ['Reset for the week: dishes, laundry, plan Monday','Kitchen deep wipe and trash','Bathrooms','Floors: vacuum or sweep','Laundry: fold and put away','Quick tidy of everything, then a 15-minute weekly review','Catch up on anything missed, errands, real rest'];
+function getRoutine(){ return (S.routine ? S.routine : DEFAULT_ROUTINE).slice().sort((a,b) => toMin(a.s) - toMin(b.s) || toMin(a.e) - toMin(b.e)); }
+
+function vRoutine(){
+  const T = todayISO(), d = now(), dow = d.getDay(), weekend = dow === 0 || dow === 6;
+  const cur = d.getHours()*60 + d.getMinutes();
+  const done = new Set((S.routineDone || {})[T] || []);
+  const top = [0,1,2].map(k => ((S.top3 || {})[T] || [])[k] || '');
+  const blocks = getRoutine(), showBlocks = !weekend || ui.rtAll;
+  const nDone = blocks.filter(b => done.has(b.id)).length;
+  const sugg = ranked(openTasks()).slice(0, 5);
+  const rows = blocks.map(b => {
+    const isNow = !weekend && cur >= toMin(b.s) && cur < toMin(b.e), isDone = done.has(b.id);
+    return `<div class="rt ${isNow?'now':''} ${isDone?'done':''} ${b.kind==='leave'?'leave':''}">
+      <div class="rtm">${fmtTime(b.s)} – ${fmtTime(b.e)}</div>
+      <div><div class="rtt">${esc(b.t)}${isNow?'<span class="rtnow">Now</span>':''}</div>${b.n ? `<div class="rtn">${esc(b.n)}</div>` : ''}</div>
+      <div class="rtact"><button class="btn sm ghost" data-act="rt-edit" data-id="${esc(b.id)}">Edit</button><button class="check" data-act="rt-toggle" data-id="${esc(b.id)}" aria-label="${isDone?'Mark not done':'Mark done'}: ${esc(b.t)}">${isDone?CHECK:''}</button></div></div>`;
+  }).join('');
+  const schedule = showBlocks
+    ? `<section class="card"><h3>Schedule${weekend?'<button class="link" data-act="rt-all">Hide weekday schedule</button>':''}</h3>${rows || '<p class="empty">No blocks yet. Add one, or reset to the default routine.</p>'}</section>`
+    : `<section class="card"><h3>Weekend</h3><p class="muted" style="margin-top:0">No school run today, so no fixed blocks. Do today's house task, handle errands, and rest.</p><button class="btn" data-act="rt-all">Preview the weekday schedule</button></section>`;
+  return `<div class="wrap"><div class="pagehead"><div><h1>Daily Routine</h1><p class="muted">${DOW[dow]}${showBlocks && !weekend ? `, ${nDone} of ${blocks.length} blocks done` : ''}</p></div>
+    <div><button class="btn" data-act="rt-add">Add block</button>${S.routine ? ' <button class="btn ghost" data-act="rt-reset">Reset to default</button>' : ''}</div></div>
+    <div class="grid"><div class="stack">${schedule}</div><div class="stack">
+      <section class="card"><h3>Top 3 for today</h3><div class="top3">${top.map((v,i) => `<div class="t3"><b>${i+1}</b><input data-top="${i}" value="${esc(v)}" maxlength="200" placeholder="${i===0?'The one thing that must happen':'Another win for today'}" aria-label="Top ${i+1} for today"></div>`).join('')}</div>
+        ${sugg.length ? `<div class="suggest" style="margin-top:14px">${sugg.map(x => `<button class="sbtn" data-act="top-fill" data-text="${esc(x.t.title)}">+ ${esc(x.t.title)}</button>`).join('')}</div>` : ''}</section>
+      <section class="card"><h3>House focus today</h3><div class="houset"><div style="font-weight:700;font-size:18px">${esc(HOUSE[dow])}</div><div class="muted">15 to 20 minutes. Set a timer and stop when it rings.</div></div></section>
+    </div></div></div>`;
+}
+function routineModal(id){
+  const cur = id ? getRoutine().find(x => x.id === id) : null; if(id && !cur) return;
+  const b = cur || {s:'09:00', e:'10:00', t:'', n:'', kind:''};
+  $('#modal').innerHTML = `<div class="scrim" data-act="scrim"><form class="modal" id="rtform" style="width:min(520px,100%)"><h2>${id?'Edit block':'New block'}</h2><div class="fgrid">
+    <div class="full"><label>Title</label><input name="t" required maxlength="120" value="${esc(b.t)}"></div>
+    <div><label>Starts</label><input type="time" name="s" required value="${esc(b.s)}"></div>
+    <div><label>Ends</label><input type="time" name="e" required value="${esc(b.e)}"></div>
+    <div class="full"><label>Details</label><textarea name="n" maxlength="500">${esc(b.n)}</textarea></div>
+    <div class="full"><label style="font-weight:400"><input type="checkbox" name="leave" ${b.kind==='leave'?'checked':''} style="width:auto;margin-right:8px">Leave-the-house block (shows a heads-up alert on weekdays)</label></div>
+  </div><div class="mfoot"><div>${id?`<button type="button" class="btn danger" data-act="rt-del" data-id="${esc(id)}">Delete</button>`:''}</div><div><button type="button" class="btn" data-act="close">Cancel</button> <button class="btn primary">Save</button></div></div></form></div>`;
+  $('#rtform').onsubmit = e => {
+    e.preventDefault(); const f = new FormData(e.target), st = f.get('s'), en = f.get('e');
+    if(toMin(en) < toMin(st)) return toast('The end time has to be after the start time.');
+    const data = {t: f.get('t').trim(), s: st, e: en, n: f.get('n').trim(), kind: f.get('leave') ? 'leave' : ''};
+    if(!data.t) return;
+    const base = (S.routine ? S.routine : DEFAULT_ROUTINE).map(x => ({...x}));
+    if(data.kind === 'leave') base.forEach(x => { x.kind = ''; });
+    if(id){ Object.assign(base.find(x => x.id === id), data); } else base.push({id: uid(), ...data});
+    S.routine = base; persist(); closeModal(); render(); toast(id ? 'Block saved' : 'Block added');
+  };
+  setTimeout(() => { const i = $('#rtform input[name=t]'); if(i) i.focus(); }, 30);
+}
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-act^="rt-"],[data-act="top-fill"]'); if(!el) return;
+  const a = el.dataset.act, id = el.dataset.id, T = todayISO();
+  if(a === 'rt-toggle'){ S.routineDone = S.routineDone || {}; const set = new Set(S.routineDone[T] || []); if(set.has(id)) set.delete(id); else set.add(id); S.routineDone[T] = [...set]; persist(); return render(); }
+  if(a === 'rt-edit') return routineModal(id);
+  if(a === 'rt-add') return routineModal(null);
+  if(a === 'rt-all'){ ui.rtAll = !ui.rtAll; return render(); }
+  if(a === 'rt-reset'){ if(confirm('Go back to the default routine? Your edited blocks will be replaced.')){ S.routine = null; persist(); render(); toast('Routine reset to default'); } return; }
+  if(a === 'rt-del'){ const prev = S.routine; S.routine = (S.routine ? S.routine : DEFAULT_ROUTINE).filter(x => x.id !== id); persist(); closeModal(); render(); return toast('Block deleted', 'Undo', () => { S.routine = prev; persist(); render(); }); }
+  if(a === 'top-fill'){ S.top3 = S.top3 || {}; const arr = [0,1,2].map(k => (S.top3[T] || [])[k] || ''); const k = arr.findIndex(x => !x); if(k < 0) return toast('Your top 3 are full. Clear one first.'); arr[k] = el.dataset.text; S.top3[T] = arr; persist(); return render(); }
+});
+document.addEventListener('change', e => {
+  const k = e.target.dataset && e.target.dataset.top; if(k === undefined) return;
+  const T = todayISO(); S.top3 = S.top3 || {};
+  const arr = [0,1,2].map(i => (S.top3[T] || [])[i] || ''); arr[+k] = e.target.value.trim().slice(0,200); S.top3[T] = arr; persist();
+});
+
 /* ================= render ================= */
-const VIEWS = {dashboard:vDashboard, today:vToday, tasks:vTasks, projects:vProjects, ai:vAI, settings:vSettings};
+const VIEWS = {dashboard:vDashboard, today:vToday, routine:vRoutine, tasks:vTasks, projects:vProjects, ai:vAI, settings:vSettings};
 function applyTheme(){ const t = S.profile.theme; if(t === 'system') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', t); }
 function render(){
   applyTheme(); renderSide(); renderBanner();
@@ -817,7 +945,7 @@ function closeModal(){ $('#modal').innerHTML = ''; }
 function taskModal(id, preset={}){
   const t = id ? taskById(id) : newTask({due:todayISO(), ...preset}); if(!t) return;
   const others = S.tasks.filter(x => x.id !== t.id && x.status !== 'done');
-  $('#modal').innerHTML = `<div class="scrim" data-act="scrim"><form class="modal" id="taskform" onclick="event.stopPropagation()"><h2>${id?'Edit task':'New task'}</h2><div class="fgrid">
+  $('#modal').innerHTML = `<div class="scrim" data-act="scrim"><form class="modal" id="taskform"><h2>${id?'Edit task':'New task'}</h2><div class="fgrid">
     <div class="full"><label>Task</label><input name="title" required value="${esc(t.title)}" autofocus></div>
     <div class="full"><label>Description</label><textarea name="desc">${esc(t.desc)}</textarea></div>
     <div><label>Due date</label><input type="date" name="due" value="${esc(t.due)}"></div>
@@ -843,7 +971,7 @@ function taskModal(id, preset={}){
 }
 function projectModal(id){
   const p = id ? S.projects.find(p => p.id === id) : {name:'',deadline:'',priority:3};
-  $('#modal').innerHTML = `<div class="scrim" data-act="scrim"><form class="modal" id="projform" onclick="event.stopPropagation()" style="width:min(460px,100%)"><h2>${id?'Edit project':'New project'}</h2><div class="fgrid">
+  $('#modal').innerHTML = `<div class="scrim" data-act="scrim"><form class="modal" id="projform" style="width:min(460px,100%)"><h2>${id?'Edit project':'New project'}</h2><div class="fgrid">
     <div class="full"><label>Name</label><input name="name" required value="${esc(p.name)}"></div>
     <div><label>Deadline</label><input type="date" name="deadline" value="${esc(p.deadline)}"></div>
     <div><label>Priority</label><select name="priority">${Object.entries(PRI).map(([k,v]) => `<option value="${k}" ${+k===p.priority?'selected':''}>${v.e} ${v.n}</option>`).join('')}</select></div>
@@ -1022,6 +1150,11 @@ if(/^https?:$/.test(location.protocol)){
   try{ if(navigator.storage && navigator.storage.persist) navigator.storage.persist(); }catch(e){}
 }
 addEventListener('storage', e => { if(e.key === KEY && e.storageArea === localStorage && e.newValue && !locked) adoptExternal(e.newValue); });
+setInterval(() => {
+  if(recovery) return; renderBanner();
+  const a = document.activeElement, typing = a && a.dataset && a.dataset.top !== undefined;
+  if(ui.view === 'routine' && !typing && !$('#modal').children.length) render();
+}, 60000);
 document.body.classList.add('fresh'); setTimeout(() => document.body.classList.remove('fresh'), 1800);
 try{ persist(); render(); handleLaunchParams(); }
 catch(err){
